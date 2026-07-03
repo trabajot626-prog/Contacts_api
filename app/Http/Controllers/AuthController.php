@@ -5,56 +5,85 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Validator;
 
 class AuthController extends Controller
 {
     public function register(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => 'required|string|min:8',
-            'password_confirmation' => 'required|same:password',
-        ]);
+        $name = $request->input('name');
+        $email = $request->input('email');
+        $password = $request->input('password');
+        $passwordConfirmation = $request->input('password_confirmation');
 
-        if ($validator->fails()) {
+        $errors = [];
+
+        if (empty($name)) {
+            $errors[] = 'El nombre es obligatorio';
+        }
+
+        if (empty($email)) {
+            $errors[] = 'El correo es obligatorio';
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'El correo no es válido';
+        } elseif (User::where('email', $email)->exists()) {
+            $errors[] = 'El correo ya está registrado';
+        }
+
+        if (empty($password)) {
+            $errors[] = 'La contraseña es obligatoria';
+        } elseif (strlen($password) < 8) {
+            $errors[] = 'La contraseña debe tener al menos 8 caracteres';
+        }
+
+        if ($password !== $passwordConfirmation) {
+            $errors[] = 'Las contraseñas no coinciden';
+        }
+
+        if (!empty($errors)) {
             return response()->json([
                 'message' => 'Error al registrarse',
-                'errors' => $validator->errors()
+                'errors' => $errors
             ], 422);
         }
 
         $user = new User();
-        $user->name = $request->name;
-        $user->email = $request->email;
-        $user->password = Hash::make($request->password);
+        $user->name = $name;
+        $user->email = $email;
+        $user->password = Hash::make($password);
         $user->save();
 
-        $token = $user->createToken('token')->plainTextToken;
+        $token = $user->createToken('auth-token')->plainTextToken;
 
         return response()->json([
             'message' => 'Registrado exitosamente',
-            'token' => $token,
-            'user' => $user
+            'user' => $user,
+            'token' => $token
         ], 201);
     }
 
     public function login(Request $request)
     {
-        $validator = Validator::make($request->all(), [
-            'email' => 'required|email',
-            'password' => 'required'
-        ]);
+        $email = $request->input('email');
+        $password = $request->input('password');
 
-        if ($validator->fails()) {
+        $errors = [];
+
+        if (empty($email)) {
+            $errors[] = 'El correo es obligatorio';
+        }
+
+        if (empty($password)) {
+            $errors[] = 'La contraseña es obligatoria';
+        }
+
+        if (!empty($errors)) {
             return response()->json([
-                'message' => 'Error al iniciar sesion',
-                'errors' => $validator->errors()
+                'message' => 'Error al iniciar sesión',
+                'errors' => $errors
             ], 422);
         }
 
-        $user = User::where('email', $request->email)->first();
+        $user = User::where('email', $email)->first();
 
         if (!$user) {
             return response()->json([
@@ -62,17 +91,79 @@ class AuthController extends Controller
             ], 401);
         }
 
-        if (!Hash::check($request->password, $user->password)) {
+        if (!Hash::check($password, $user->password)) {
             return response()->json([
                 'message' => 'Credenciales incorrectas'
             ], 401);
         }
 
-        $token = $user->createToken('token')->plainTextToken;
+        $token = $user->createToken('auth-token')->plainTextToken;
 
         return response()->json([
-            'message' => 'Sesion iniciada correctamente',
-            'token' => $token,
+            'message' => 'Sesión iniciada correctamente',
+            'user' => $user,
+            'token' => $token
+        ]);
+    }
+
+    public function update(Request $request)
+    {
+        $user = $request->user();
+
+        $name = $request->input('name');
+        $email = $request->input('email');
+
+        $errors = [];
+
+        if (empty($name)) {
+            $errors[] = 'El nombre es obligatorio';
+        }
+
+        if (empty($email)) {
+            $errors[] = 'El correo es obligatorio';
+        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            $errors[] = 'El correo no es válido';
+        } elseif (User::where('email', $email)->where('id', '!=', $user->id)->exists()) {
+            $errors[] = 'El correo ya está en uso';
+        }
+
+        if (!empty($errors)) {
+            return response()->json([
+                'message' => 'Error al actualizar',
+                'errors' => $errors
+            ], 422);
+        }
+
+        $user->name = $name;
+        $user->email = $email;
+
+        $password = $request->input('password');
+
+        if (!empty($password)) {
+            $passwordConfirmation = $request->input('password_confirmation');
+
+            if (strlen($password) < 8) {
+                $errors[] = 'La contraseña debe tener al menos 8 caracteres';
+            }
+
+            if ($password !== $passwordConfirmation) {
+                $errors[] = 'Las contraseñas no coinciden';
+            }
+
+            if (!empty($errors)) {
+                return response()->json([
+                    'message' => 'Error al actualizar',
+                    'errors' => $errors
+                ], 422);
+            }
+
+            $user->password = Hash::make($password);
+        }
+
+        $user->save();
+
+        return response()->json([
+            'message' => 'Usuario actualizado correctamente',
             'user' => $user
         ]);
     }
@@ -80,13 +171,14 @@ class AuthController extends Controller
     public function logout(Request $request)
     {
         $user = $request->user();
+        $token = $user->currentAccessToken();
 
-        if ($user) {
-            $user->currentAccessToken()->delete();
+        if ($token) {
+            $token->delete();
         }
 
         return response()->json([
-            'message' => 'Sesion cerrada correctamente'
+            'message' => 'Sesión cerrada correctamente'
         ]);
     }
 }
