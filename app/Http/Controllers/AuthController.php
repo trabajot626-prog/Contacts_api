@@ -5,53 +5,36 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Validator;
 
 class AuthController extends Controller
 {
     public function register(Request $request)
     {
-        $name = $request->input('name');
-        $email = $request->input('email');
-        $password = $request->input('password');
-        $passwordConfirmation = $request->input('password_confirmation');
+        // validar los campos
+        $rules = [
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users',
+            'password' => 'required|string|min:8|confirmed',
+        ];
 
-        $errors = [];
+        $validar = Validator::make($request->all(), $rules);
 
-        if (empty($name)) {
-            $errors[] = 'El nombre es obligatorio';
-        }
-
-        if (empty($email)) {
-            $errors[] = 'El correo es obligatorio';
-        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $errors[] = 'El correo no es válido';
-        } elseif (User::where('email', $email)->exists()) {
-            $errors[] = 'El correo ya está registrado';
-        }
-
-        if (empty($password)) {
-            $errors[] = 'La contraseña es obligatoria';
-        } elseif (strlen($password) < 8) {
-            $errors[] = 'La contraseña debe tener al menos 8 caracteres';
-        }
-
-        if ($password !== $passwordConfirmation) {
-            $errors[] = 'Las contraseñas no coinciden';
-        }
-
-        if (!empty($errors)) {
+        if ($validar->fails()) {
             return response()->json([
                 'message' => 'Error al registrarse',
-                'errors' => $errors
+                'errors' => $validar->errors()
             ], 422);
         }
 
+        // crear usuario
         $user = new User();
-        $user->name = $name;
-        $user->email = $email;
-        $user->password = Hash::make($password);
+        $user->name = $request->name;
+        $user->email = $request->email;
+        $user->password = Hash::make($request->password);
         $user->save();
 
+        // generar token
         $token = $user->createToken('auth-token')->plainTextToken;
 
         return response()->json([
@@ -110,54 +93,29 @@ class AuthController extends Controller
     {
         $user = $request->user();
 
-        $name = $request->input('name');
-        $email = $request->input('email');
+        $rules = [
+            'name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email,' . $user->id,
+        ];
 
-        $errors = [];
-
-        if (empty($name)) {
-            $errors[] = 'El nombre es obligatorio';
+        if ($request->has('password')) {
+            $rules['password'] = 'string|min:8|confirmed';
         }
 
-        if (empty($email)) {
-            $errors[] = 'El correo es obligatorio';
-        } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
-            $errors[] = 'El correo no es válido';
-        } elseif (User::where('email', $email)->where('id', '!=', $user->id)->exists()) {
-            $errors[] = 'El correo ya está en uso';
-        }
+        $validar = Validator::make($request->all(), $rules);
 
-        if (!empty($errors)) {
+        if ($validar->fails()) {
             return response()->json([
                 'message' => 'Error al actualizar',
-                'errors' => $errors
+                'errors' => $validar->errors()
             ], 422);
         }
 
-        $user->name = $name;
-        $user->email = $email;
+        $user->name = $request->name;
+        $user->email = $request->email;
 
-        $password = $request->input('password');
-
-        if (!empty($password)) {
-            $passwordConfirmation = $request->input('password_confirmation');
-
-            if (strlen($password) < 8) {
-                $errors[] = 'La contraseña debe tener al menos 8 caracteres';
-            }
-
-            if ($password !== $passwordConfirmation) {
-                $errors[] = 'Las contraseñas no coinciden';
-            }
-
-            if (!empty($errors)) {
-                return response()->json([
-                    'message' => 'Error al actualizar',
-                    'errors' => $errors
-                ], 422);
-            }
-
-            $user->password = Hash::make($password);
+        if ($request->has('password')) {
+            $user->password = Hash::make($request->password);
         }
 
         $user->save();
